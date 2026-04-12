@@ -1,0 +1,10 @@
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/quote_use_macros-9d8e6c564ff3738a.d: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/use_parser.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/core.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/std.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/2021.rs
+
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/libquote_use_macros-9d8e6c564ff3738a.dylib: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/use_parser.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/core.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/std.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/2021.rs
+
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/lib.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/use_parser.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/core.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/std.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/quote-use-macros-0.8.4/src/prelude/2021.rs:

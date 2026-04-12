@@ -1,0 +1,14 @@
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/serde-41bcc5e221538109.d: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-84adfb4a5ed34214/out/private.rs
+
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/libserde-41bcc5e221538109.rlib: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-84adfb4a5ed34214/out/private.rs
+
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/libserde-41bcc5e221538109.rmeta: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-84adfb4a5ed34214/out/private.rs
+
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-84adfb4a5ed34214/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-84adfb4a5ed34214/out

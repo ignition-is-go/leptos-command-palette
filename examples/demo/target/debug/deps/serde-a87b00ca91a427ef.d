@@ -1,0 +1,12 @@
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/serde-a87b00ca91a427ef.d: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-48ac155bdaeecab6/out/private.rs
+
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/libserde-a87b00ca91a427ef.rmeta: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-48ac155bdaeecab6/out/private.rs
+
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-48ac155bdaeecab6/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/build/serde-48ac155bdaeecab6/out

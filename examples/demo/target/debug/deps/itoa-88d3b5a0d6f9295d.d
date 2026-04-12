@@ -1,0 +1,6 @@
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/itoa-88d3b5a0d6f9295d.d: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18/src/u128_ext.rs
+
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/libitoa-88d3b5a0d6f9295d.rmeta: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18/src/u128_ext.rs
+
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18/src/lib.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/itoa-1.0.18/src/u128_ext.rs:

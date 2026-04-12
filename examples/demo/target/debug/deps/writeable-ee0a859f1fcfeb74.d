@@ -1,0 +1,11 @@
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/writeable-ee0a859f1fcfeb74.d: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/cmp.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/concat.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/impls.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/ops.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/parts_write_adapter.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/try_writeable.rs
+
+/Users/trevor/Code/leptos-command-palette/examples/demo/target/debug/deps/libwriteable-ee0a859f1fcfeb74.rmeta: /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/lib.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/cmp.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/concat.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/impls.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/ops.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/parts_write_adapter.rs /Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/try_writeable.rs
+
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/lib.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/cmp.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/concat.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/impls.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/ops.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/parts_write_adapter.rs:
+/Users/trevor/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/writeable-0.6.3/src/try_writeable.rs:
