@@ -34,6 +34,7 @@ fn App() -> impl IntoView {
 
     provide_context(CommandPaletteBackdropTheme {
         background: "rgba(0,0,0,0.6)".into(),
+        ..Default::default()
     });
     provide_context(CommandPaletteTheme {
         background: "#1a1a1a".into(),
@@ -128,6 +129,25 @@ fn RegisterGlobalCommands() -> impl IntoView {
             })
                 .description("Refresh the current page")
                 .group("Application"),
+            // Drill-down submenu: children are generated from live data each
+            // time the branch is entered. Picking a scene runs its action and
+            // closes; Esc / Backspace-on-empty / the breadcrumb go back up.
+            Command::submenu("scenes", "Open Scene", move || {
+                (1..=90)
+                    .map(|n| {
+                        Command::new(
+                            format!("scene.{n}"),
+                            format!("Scene {n}"),
+                            move || {
+                                state.current_page.set(format!("scene {n}"));
+                            },
+                        )
+                        .group("Scenes")
+                    })
+                    .collect()
+            })
+                .description("Browse all scenes")
+                .group("Navigation"),
         ]);
     });
 

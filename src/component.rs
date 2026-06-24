@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::command::CommandPalettePosition;
+use crate::command::{filter_commands, CommandPalettePosition};
 use crate::context::{use_command_palette, CommandPaletteContext};
 use crate::shortcut::{Modifier, Shortcut};
 use crate::theme::*;
@@ -26,9 +26,9 @@ pub fn CommandPaletteProvider(children: Children) -> impl IntoView {
             return;
         }
 
-        // Escape closes the palette
+        // Escape goes up one submenu level, or closes the palette at the root
         if ev.key() == "Escape" {
-            ctx.close();
+            ctx.back_or_close();
             return;
         }
 
@@ -81,27 +81,18 @@ pub fn CommandPalette(
 
     let position_css = position.to_css();
 
-    let filtered_commands = Memo::new(move |_| {
-        let q = query.get().to_lowercase();
-        let cmds = ctx.commands().get();
-        if q.is_empty() {
-            cmds
-        } else {
-            cmds.into_iter()
-                .filter(|c| {
-                    c.name.to_lowercase().contains(&q)
-                        || c.description
-                            .as_ref()
-                            .map(|d| d.to_lowercase().contains(&q))
-                            .unwrap_or(false)
-                        || c.group
-                            .as_ref()
-                            .map(|g| g.to_lowercase().contains(&q))
-                            .unwrap_or(false)
-                })
-                .collect()
-        }
+    // The commands visible at the current depth: root registrations when not in
+    // a submenu, otherwise the snapshot captured when the current branch was
+    // entered. Search filters this level only.
+    let current_items = Memo::new(move |_| match ctx.nav_stack().get().last() {
+        Some(level) => level.items.clone(),
+        None => ctx.commands().get(),
     });
+
+    // Filter the current level by the query. For searchable branches this also
+    // surfaces matching children inline (promoted with the branch name as
+    // context), so a sub-option can be reached without entering the submenu.
+    let filtered_commands = Memo::new(move |_| filter_commands(&current_items.get(), &query.get()));
 
     let selected_index_in_list = move || {
         let cmds = filtered_commands.get();
@@ -137,10 +128,25 @@ pub fn CommandPalette(
         }
     });
 
+    // Clear the search box whenever the drill-down depth changes (entering or
+    // leaving a submenu), so each level starts with a fresh, unfiltered list.
+    // Also refocus the input, since drilling in via mouse click moves focus off
+    // it — without this the search box would be unusable after a click-drill.
+    Effect::new(move || {
+        let _depth = ctx.nav_stack().get().len();
+        set_query.set(String::new());
+        request_animation_frame(move || {
+            if let Some(input) = input_ref.get_untracked() {
+                let _ = input.focus();
+            }
+        });
+    });
+
     // Build all style strings from theme values
     let backdrop_style = format!(
-        "position:fixed;top:0;left:0;right:0;bottom:0;background:{}",
-        backdrop_theme.background,
+        "position:fixed;top:0;left:0;right:0;bottom:0;background:{bg};z-index:{z}",
+        bg = backdrop_theme.background,
+        z = backdrop_theme.z_index,
     );
 
     let panel_style = format!(
@@ -178,6 +184,7 @@ pub fn CommandPalette(
     );
 
     let input_ph_color = StoredValue::new(input_theme.placeholder_color.clone());
+    let panel_color = StoredValue::new(panel_theme.color.clone());
     let item_pad = StoredValue::new(item_theme.padding.clone());
     let item_br = StoredValue::new(item_theme.border_radius.clone());
     let item_sel_bg = StoredValue::new(item_theme.selected_background.clone());
@@ -210,6 +217,48 @@ pub fn CommandPalette(
                     style=move || panel_style.get_value()
                     on:click=move |ev: web_sys::MouseEvent| ev.stop_propagation()
                 >
+                    <Show when=move || !ctx.nav_stack().get().is_empty()>
+                        <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-bottom:8px;font-size:13px">
+                            <span
+                                style=move || format!(
+                                    "cursor:pointer;color:{};opacity:0.7;padding-right:2px",
+                                    panel_color.get_value(),
+                                )
+                                on:mousedown=move |ev: web_sys::MouseEvent| ev.prevent_default()
+                                on:click=move |_| ctx.back()
+                            >
+                                "‹"
+                            </span>
+                            {move || {
+                                let stack = ctx.nav_stack().get();
+                                stack
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(i, level)| {
+                                        let target = i + 1;
+                                        let crumb_style = format!(
+                                            "cursor:pointer;color:{}",
+                                            panel_color.get_value(),
+                                        );
+                                        let sep_style = format!(
+                                            "color:{};opacity:0.5",
+                                            item_sc_color.get_value(),
+                                        );
+                                        view! {
+                                            <span
+                                                style=crumb_style
+                                                on:mousedown=move |ev: web_sys::MouseEvent| ev.prevent_default()
+                                                on:click=move |_| ctx.pop_to(target)
+                                            >
+                                                {level.label}
+                                            </span>
+                                            <span style=sep_style>"›"</span>
+                                        }
+                                    })
+                                    .collect_view()
+                            }}
+                        </div>
+                    </Show>
                     <input
                         class="command-palette-input"
                         style=move || input_style.get_value()
@@ -219,13 +268,21 @@ pub fn CommandPalette(
                             set_query.set(event_target_value(&ev));
                         }
                         on:keydown=move |ev: web_sys::KeyboardEvent| {
+                            let key = ev.key();
+                            // Backspace on an empty query pops one submenu level.
+                            // Handled before the empty-list guard so it works
+                            // even when the current level has no items.
+                            if key == "Backspace" && query.get().is_empty() && ctx.depth() > 0 {
+                                ev.prevent_default();
+                                ctx.back();
+                                return;
+                            }
                             let cmds = filtered_commands.get();
                             let count = cmds.len();
                             if count == 0 {
                                 return;
                             }
                             let cur = selected_index_in_list();
-                            let key = ev.key();
                             match key.as_str() {
                                 "ArrowDown" => {
                                     ev.prevent_default();
@@ -238,8 +295,13 @@ pub fn CommandPalette(
                                 "Enter" => {
                                     ev.prevent_default();
                                     if let Some(cmd) = cmds.get(cur) {
-                                        cmd.execute();
-                                        ctx.close();
+                                        // Branch: drill in. Leaf: run + close.
+                                        if cmd.is_branch() {
+                                            ctx.enter(cmd);
+                                        } else {
+                                            cmd.execute();
+                                            ctx.close();
+                                        }
                                     }
                                 }
                                 _ => {}
@@ -254,6 +316,13 @@ pub fn CommandPalette(
                             children=move |cmd| {
                                 let cmd_id_hover = cmd.id.clone();
                                 let cmd_id_style = cmd.id.clone();
+                                let is_branch = cmd.is_branch();
+                                let chevron_style = format!(
+                                    "color:{};opacity:{};flex-shrink:0;margin-left:{};font-size:16px;line-height:1",
+                                    item_sc_color.get_value(),
+                                    item_sc_opacity.get_value(),
+                                    item_sc_ml.get_value(),
+                                );
                                 let desc_style = format!(
                                     "color:{};font-size:{};margin-top:{}",
                                     item_desc_color.get_value(),
@@ -279,9 +348,18 @@ pub fn CommandPalette(
                                                 item_pad.get_value(), item_br.get_value(), bg, color,
                                             )
                                         }
+                                        // Keep the search input focused when a
+                                        // row is clicked (so typing/Backspace
+                                        // keep working after a mouse drill-in).
+                                        on:mousedown=move |ev: web_sys::MouseEvent| ev.prevent_default()
                                         on:click=move |_| {
-                                            cmd_for_click.execute();
-                                            ctx.close();
+                                            // Branch: drill in. Leaf: run + close.
+                                            if cmd_for_click.is_branch() {
+                                                ctx.enter(&cmd_for_click);
+                                            } else {
+                                                cmd_for_click.execute();
+                                                ctx.close();
+                                            }
                                         }
                                         on:mouseenter=move |_| {
                                             set_selected_id.set(Some(cmd_id_hover.clone()));
@@ -295,11 +373,16 @@ pub fn CommandPalette(
                                                 }
                                             })}
                                         </div>
-                                        {cmd.shortcut.as_ref().map(|s| {
-                                            view! {
-                                                <div style={shortcut_style.clone()}>{s.to_string()}</div>
-                                            }
-                                        })}
+                                        <div style="display:flex;align-items:center">
+                                            {cmd.shortcut.as_ref().map(|s| {
+                                                view! {
+                                                    <div style={shortcut_style.clone()}>{s.to_string()}</div>
+                                                }
+                                            })}
+                                            {is_branch.then(|| view! {
+                                                <div style={chevron_style.clone()}>"›"</div>
+                                            })}
+                                        </div>
                                     </div>
                                 }
                             }

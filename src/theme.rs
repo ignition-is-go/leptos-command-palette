@@ -3,12 +3,16 @@
 pub struct CommandPaletteBackdropTheme {
     /// Background color of the overlay behind the palette.
     pub background: String,
+    /// Stacking order of the overlay. Should be high enough to sit above the
+    /// host app's positioned content, since the palette is an app-modal overlay.
+    pub z_index: u32,
 }
 
 impl Default for CommandPaletteBackdropTheme {
     fn default() -> Self {
         Self {
             background: "rgba(0,0,0,0.5)".into(),
+            z_index: 9999,
         }
     }
 }
