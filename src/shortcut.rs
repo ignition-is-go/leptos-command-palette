@@ -11,12 +11,7 @@ pub enum Modifier {
 
 fn is_mac() -> bool {
     web_sys::window()
-        .map(|w| {
-            w.navigator()
-                .platform()
-                .unwrap_or_default()
-                .contains("Mac")
-        })
+        .map(|w| w.navigator().platform().unwrap_or_default().contains("Mac"))
         .unwrap_or(false)
 }
 
@@ -25,10 +20,18 @@ impl Modifier {
     pub fn display_name(self) -> &'static str {
         match self {
             Modifier::Main => {
-                if is_mac() { "Cmd" } else { "Ctrl" }
+                if is_mac() {
+                    "Cmd"
+                } else {
+                    "Ctrl"
+                }
             }
             Modifier::Alt => {
-                if is_mac() { "Opt" } else { "Alt" }
+                if is_mac() {
+                    "Opt"
+                } else {
+                    "Alt"
+                }
             }
             Modifier::Shift => "Shift",
         }
@@ -92,7 +95,9 @@ impl Shortcut {
         // The "other" modifier (ctrl on Mac, meta on Windows) should not be pressed
         let other_pressed = if mac { ev.ctrl_key() } else { ev.meta_key() };
 
-        let code_matches = ev.code().eq_ignore_ascii_case(&Self::key_to_code(&self.key));
+        let code_matches = ev
+            .code()
+            .eq_ignore_ascii_case(&Self::key_to_code(&self.key));
 
         main_pressed == main_expected
             && !other_pressed
