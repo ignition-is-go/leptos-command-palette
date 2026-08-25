@@ -86,10 +86,7 @@ impl Command {
     /// Useful for adding drill-down to a command built with [`Command::new`].
     /// Any existing action is preserved but ignored while the command is a
     /// branch (selecting it drills in rather than executing).
-    pub fn children(
-        mut self,
-        children: impl Fn() -> Vec<Command> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn children(mut self, children: impl Fn() -> Vec<Command> + Send + Sync + 'static) -> Self {
         self.children = Some(Arc::new(children));
         self
     }
@@ -288,8 +285,8 @@ mod tests {
 
     #[test]
     fn children_builder_turns_a_leaf_into_a_branch() {
-        let cmd = Command::new("more", "More", || {})
-            .children(|| vec![Command::new("x", "X", || {})]);
+        let cmd =
+            Command::new("more", "More", || {}).children(|| vec![Command::new("x", "X", || {})]);
         assert!(cmd.is_branch());
         assert_eq!(cmd.resolve_children().unwrap().len(), 1);
     }
