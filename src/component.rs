@@ -1,9 +1,33 @@
 use leptos::prelude::*;
 
-use crate::command::{filter_commands, CommandPalettePosition};
+use crate::command::{filter_commands, Command, CommandPalettePosition};
 use crate::context::{use_command_palette, CommandPaletteContext};
 use crate::shortcut::{Modifier, Shortcut};
 use crate::theme::*;
+
+struct CommandSection {
+    heading: Option<String>,
+    commands: Vec<Command>,
+}
+
+fn command_sections(commands: Vec<Command>) -> Vec<CommandSection> {
+    let mut sections: Vec<CommandSection> = Vec::new();
+    for command in commands {
+        let heading = command.search_parent().map(str::to_owned);
+        if let Some(section) = sections
+            .last_mut()
+            .filter(|section| section.heading == heading)
+        {
+            section.commands.push(command);
+        } else {
+            sections.push(CommandSection {
+                heading,
+                commands: vec![command],
+            });
+        }
+    }
+    sections
+}
 
 /// Provides the command palette context and renders children.
 ///
@@ -78,6 +102,7 @@ pub fn CommandPalette(
     let (query, set_query) = signal(String::new());
     let (selected_id, set_selected_id) = signal(Option::<String>::None);
     let input_ref = NodeRef::<leptos::html::Input>::new();
+    let command_list_ref = NodeRef::<leptos::html::Div>::new();
 
     let position_css = position.to_css();
 
@@ -142,6 +167,29 @@ pub fn CommandPalette(
         });
     });
 
+    // Keyboard navigation can move selection beyond the visible portion of the
+    // result list. Keep the selected row in view without repositioning rows
+    // that are already visible.
+    Effect::new(move || {
+        if selected_id.get().is_none() {
+            return;
+        }
+        request_animation_frame(move || {
+            let Some(command_list) = command_list_ref.get_untracked() else {
+                return;
+            };
+            let Ok(Some(selected)) =
+                command_list.query_selector("[data-command-palette-selected='true']")
+            else {
+                return;
+            };
+            let options = web_sys::ScrollIntoViewOptions::new();
+            options.set_block(web_sys::ScrollLogicalPosition::Nearest);
+            options.set_inline(web_sys::ScrollLogicalPosition::Nearest);
+            selected.scroll_into_view_with_scroll_into_view_options(&options);
+        });
+    });
+
     // Build all style strings from theme values
     let backdrop_style = format!(
         "position:fixed;top:0;left:0;right:0;bottom:0;background:{bg};z-index:{z}",
@@ -184,6 +232,7 @@ pub fn CommandPalette(
     );
 
     let input_ph_color = StoredValue::new(input_theme.placeholder_color.clone());
+    let panel_background = StoredValue::new(panel_theme.background.clone());
     let panel_color = StoredValue::new(panel_theme.color.clone());
     let item_pad = StoredValue::new(item_theme.padding.clone());
     let item_br = StoredValue::new(item_theme.border_radius.clone());
@@ -309,84 +358,127 @@ pub fn CommandPalette(
                         }
                         node_ref=input_ref
                     />
-                    <div style="overflow-y:auto;flex:1">
-                        <For
-                            each=move || filtered_commands.get()
-                            key=|cmd| cmd.id.clone()
-                            children=move |cmd| {
-                                let cmd_id_hover = cmd.id.clone();
-                                let cmd_id_style = cmd.id.clone();
-                                let is_branch = cmd.is_branch();
-                                let chevron_style = format!(
-                                    "color:{};opacity:{};flex-shrink:0;margin-left:{};font-size:16px;line-height:1",
+                    <div node_ref=command_list_ref style="overflow-y:auto;flex:1">
+                        {move || command_sections(filtered_commands.get()).into_iter().map(|section| {
+                            let heading = section.heading.map(|heading| {
+                                let heading_style = format!(
+                                    "position:sticky;top:0;z-index:1;padding:6px 12px 4px;\
+                                     background:{};color:{};font-size:11px;font-weight:600;\
+                                     letter-spacing:0.02em",
+                                    panel_background.get_value(),
                                     item_sc_color.get_value(),
-                                    item_sc_opacity.get_value(),
-                                    item_sc_ml.get_value(),
                                 );
-                                let desc_style = format!(
-                                    "color:{};font-size:{};margin-top:{}",
-                                    item_desc_color.get_value(),
-                                    item_desc_fs.get_value(),
-                                    item_desc_mt.get_value(),
-                                );
-                                let shortcut_style = format!(
-                                    "color:{};font-size:{};opacity:{};flex-shrink:0;margin-left:{}",
-                                    item_sc_color.get_value(),
-                                    item_sc_fs.get_value(),
-                                    item_sc_opacity.get_value(),
-                                    item_sc_ml.get_value(),
-                                );
-                                let cmd_for_click = cmd.clone();
-                                view! {
-                                    <div
-                                        style=move || {
-                                            let is_sel = selected_id.get().as_deref() == Some(&cmd_id_style);
-                                            let bg = if is_sel { item_sel_bg.get_value() } else { "transparent".into() };
-                                            let color = if is_sel { item_sel_color.get_value() } else { "inherit".into() };
-                                            format!(
-                                                "padding:{};border-radius:{};background:{};color:{};cursor:pointer;display:flex;justify-content:space-between;align-items:center",
-                                                item_pad.get_value(), item_br.get_value(), bg, color,
-                                            )
-                                        }
-                                        // Keep the search input focused when a
-                                        // row is clicked (so typing/Backspace
-                                        // keep working after a mouse drill-in).
-                                        on:mousedown=move |ev: web_sys::MouseEvent| ev.prevent_default()
-                                        on:click=move |_| {
-                                            // Branch: drill in. Leaf: run + close.
-                                            if cmd_for_click.is_branch() {
-                                                ctx.enter(&cmd_for_click);
-                                            } else {
-                                                cmd_for_click.execute();
-                                                ctx.close();
-                                            }
-                                        }
-                                        on:mouseenter=move |_| {
-                                            set_selected_id.set(Some(cmd_id_hover.clone()));
-                                        }
-                                    >
-                                        <div>
-                                            <div>{cmd.name.clone()}</div>
-                                            {cmd.description.as_ref().map(|d| {
-                                                view! {
-                                                    <div style={desc_style.clone()}>{d.clone()}</div>
+                                view! { <div style=heading_style>{heading}</div> }
+                            });
+                            view! {
+                                <div>
+                                    {heading}
+                                    {section.commands.into_iter().map(|cmd| {
+                                        let cmd_id_hover = cmd.id.clone();
+                                        let cmd_id_attr = cmd.id.clone();
+                                        let cmd_id_style = cmd.id.clone();
+                                        let is_branch = cmd.is_branch();
+                                        let chevron_style = format!(
+                                            "color:{};opacity:{};flex-shrink:0;margin-left:{};font-size:16px;line-height:1",
+                                            item_sc_color.get_value(),
+                                            item_sc_opacity.get_value(),
+                                            item_sc_ml.get_value(),
+                                        );
+                                        let desc_style = format!(
+                                            "color:{};font-size:{};margin-top:{}",
+                                            item_desc_color.get_value(),
+                                            item_desc_fs.get_value(),
+                                            item_desc_mt.get_value(),
+                                        );
+                                        let shortcut_style = format!(
+                                            "color:{};font-size:{};opacity:{};flex-shrink:0;margin-left:{}",
+                                            item_sc_color.get_value(),
+                                            item_sc_fs.get_value(),
+                                            item_sc_opacity.get_value(),
+                                            item_sc_ml.get_value(),
+                                        );
+                                        let cmd_for_click = cmd.clone();
+                                        view! {
+                                            <div
+                                                data-command-palette-selected=move || {
+                                                    (selected_id.get().as_deref() == Some(&cmd_id_attr))
+                                                        .then_some("true")
                                                 }
-                                            })}
-                                        </div>
-                                        <div style="display:flex;align-items:center">
-                                            {cmd.shortcut.as_ref().map(|s| {
-                                                view! {
-                                                    <div style={shortcut_style.clone()}>{s.to_string()}</div>
+                                                style=move || {
+                                                    let is_sel = selected_id.get().as_deref() == Some(&cmd_id_style);
+                                                    let bg = if is_sel { item_sel_bg.get_value() } else { "transparent".into() };
+                                                    let color = if is_sel { item_sel_color.get_value() } else { "inherit".into() };
+                                                    format!(
+                                                        "padding:{};border-radius:{};background:{};color:{};cursor:pointer;display:flex;justify-content:space-between;align-items:center",
+                                                        item_pad.get_value(), item_br.get_value(), bg, color,
+                                                    )
                                                 }
-                                            })}
-                                            {is_branch.then(|| view! {
-                                                <div style={chevron_style.clone()}>"›"</div>
-                                            })}
-                                        </div>
-                                    </div>
-                                }
+                                                // Keep the search input focused when a
+                                                // row is clicked (so typing/Backspace
+                                                // keep working after a mouse drill-in).
+                                                on:mousedown=move |ev: web_sys::MouseEvent| ev.prevent_default()
+                                                on:click=move |_| {
+                                                    // Branch: drill in. Leaf: run + close.
+                                                    if cmd_for_click.is_branch() {
+                                                        ctx.enter(&cmd_for_click);
+                                                    } else {
+                                                        cmd_for_click.execute();
+                                                        ctx.close();
+                                                    }
+                                                }
+                                                on:mouseenter=move |_| {
+                                                    set_selected_id.set(Some(cmd_id_hover.clone()));
+                                                }
+                                            >
+                                                <div>
+                                                    <div>{cmd.name.clone()}</div>
+                                                    {cmd.description.as_ref().map(|d| {
+                                                        view! {
+                                                            <div style={desc_style.clone()}>{d.clone()}</div>
+                                                        }
+                                                    })}
+                                                    {(!cmd.badges.is_empty()).then(|| {
+                                                        view! {
+                                                            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:4px">
+                                                                {cmd.badges.clone().into_iter().map(|badge| {
+                                                                    let badge_style = format!(
+                                                                        "display:inline-flex;align-items:center;gap:4px;padding:1px 6px;\
+                                                                         border-radius:999px;white-space:nowrap;font-size:11px;line-height:16px;\
+                                                                         color:{color};border:1px solid color-mix(in srgb,{color} 38%,transparent);\
+                                                                         background:color-mix(in srgb,{color} 16%,transparent)",
+                                                                        color = badge.color,
+                                                                    );
+                                                                    let dot_style = format!(
+                                                                        "width:6px;height:6px;border-radius:50%;flex:none;background:{}",
+                                                                        badge.color,
+                                                                    );
+                                                                    view! {
+                                                                        <span style=badge_style>
+                                                                            <span style=dot_style></span>
+                                                                            {badge.label}
+                                                                        </span>
+                                                                    }
+                                                                }).collect_view()}
+                                                            </div>
+                                                        }
+                                                    })}
+                                                </div>
+                                                <div style="display:flex;align-items:center">
+                                                    {cmd.shortcut.as_ref().map(|s| {
+                                                        view! {
+                                                            <div style={shortcut_style.clone()}>{s.to_string()}</div>
+                                                        }
+                                                    })}
+                                                    {is_branch.then(|| view! {
+                                                        <div style={chevron_style.clone()}>"›"</div>
+                                                    })}
+                                                </div>
+                                            </div>
+                                        }
+                                    }).collect_view()}
+                                </div>
                             }
-                        />
+                        }).collect_view()}
                         <Show when=move || filtered_commands.get().is_empty()>
                             <div style=move || empty_style.get_value()>
                                 "No commands found"
@@ -396,5 +488,30 @@ pub fn CommandPalette(
                 </div>
             </div>
         </Show>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn promoted_children_share_one_parent_section() {
+        let commands = vec![Command::submenu("scenes", "Open Scene", || {
+            vec![
+                Command::new("sunset-exterior", "Sunset Exterior", || {}),
+                Command::new("sunset-interior", "Sunset Interior", || {}),
+            ]
+        })
+        .searchable_children()];
+
+        let sections = command_sections(filter_commands(&commands, "sunset"));
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].heading.as_deref(), Some("Open Scene"));
+        assert_eq!(sections[0].commands.len(), 2);
+        assert!(sections[0]
+            .commands
+            .iter()
+            .all(|command| command.description.is_none()));
     }
 }
