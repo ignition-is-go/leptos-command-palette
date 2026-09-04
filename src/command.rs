@@ -5,6 +5,27 @@ use crate::shortcut::{Modifier, Shortcut};
 /// A unique identifier for a command.
 pub type CommandId = String;
 
+/// A compact colored label displayed with a command.
+///
+/// Applications can use badges for contextual metadata such as tags, status,
+/// environment, or ownership without encoding presentation into descriptions.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandBadge {
+    /// Text displayed inside the badge and included in palette search.
+    pub label: String,
+    /// CSS color used for the badge dot, text, border, and tinted background.
+    pub color: String,
+}
+
+impl CommandBadge {
+    pub fn new(label: impl Into<String>, color: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            color: color.into(),
+        }
+    }
+}
+
 /// A command that can appear in the palette.
 #[derive(Clone)]
 pub struct Command {
@@ -18,6 +39,8 @@ pub struct Command {
     pub group: Option<String>,
     /// Optional keyboard shortcut — both the keybinding and the display hint.
     pub shortcut: Option<Shortcut>,
+    /// Compact contextual labels rendered below the command name.
+    pub badges: Vec<CommandBadge>,
     /// The action to execute when this command is selected (no-op for branches).
     action: Arc<dyn Fn() + Send + Sync>,
     /// When present, this command is a *branch*: selecting it drills into a
@@ -27,6 +50,9 @@ pub struct Command {
     /// When `true` (and this is a branch), the branch's children are surfaced
     /// directly in search results — see [`Command::searchable_children`].
     search_children: bool,
+    /// Parent submenu shown as the sticky section heading when this command is
+    /// promoted into search results.
+    search_parent: Option<String>,
 }
 
 impl Command {
@@ -41,9 +67,11 @@ impl Command {
             description: None,
             group: None,
             shortcut: None,
+            badges: Vec::new(),
             action: Arc::new(action),
             children: None,
             search_children: false,
+            search_parent: None,
         }
     }
 
@@ -75,9 +103,11 @@ impl Command {
             description: None,
             group: None,
             shortcut: None,
+            badges: Vec::new(),
             action: Arc::new(|| {}),
             children: Some(Arc::new(children)),
             search_children: false,
+            search_parent: None,
         }
     }
 
@@ -127,6 +157,18 @@ impl Command {
         self
     }
 
+    /// Add one contextual badge to this command.
+    pub fn badge(mut self, badge: CommandBadge) -> Self {
+        self.badges.push(badge);
+        self
+    }
+
+    /// Add contextual badges to this command in display order.
+    pub fn badges(mut self, badges: impl IntoIterator<Item = CommandBadge>) -> Self {
+        self.badges.extend(badges);
+        self
+    }
+
     /// Set the keyboard shortcut for this command.
     ///
     /// ```ignore
@@ -160,14 +202,16 @@ impl Command {
         self.children.as_ref().map(|f| f())
     }
 
-    /// A clone of this child shown with `parent_label` as context, used when a
-    /// child is promoted into top-level search. Keeps any existing description.
+    /// A clone of this child grouped beneath `parent_label`, used when a child
+    /// is promoted into top-level search. Keeps any existing description.
     fn promoted_under(&self, parent_label: &str) -> Command {
         let mut child = self.clone();
-        if child.description.is_none() {
-            child.description = Some(parent_label.to_string());
-        }
+        child.search_parent = Some(parent_label.to_string());
         child
+    }
+
+    pub(crate) fn search_parent(&self) -> Option<&str> {
+        self.search_parent.as_deref()
     }
 }
 
@@ -185,6 +229,10 @@ fn matches_query(cmd: &Command, q: &str) -> bool {
             .as_ref()
             .map(|g| g.to_lowercase().contains(q))
             .unwrap_or(false)
+        || cmd
+            .badges
+            .iter()
+            .any(|badge| badge.label.to_lowercase().contains(q))
 }
 
 /// Filter `items` by `query` for display in the palette.
@@ -234,7 +282,9 @@ impl std::fmt::Debug for Command {
             .field("description", &self.description)
             .field("group", &self.group)
             .field("shortcut", &self.shortcut)
+            .field("badges", &self.badges)
             .field("is_branch", &self.is_branch())
+            .field("search_parent", &self.search_parent)
             .finish()
     }
 }
@@ -267,6 +317,24 @@ mod tests {
         let cmd = Command::new("save", "Save", || {});
         assert!(!cmd.is_branch());
         assert!(cmd.resolve_children().is_none());
+        assert!(cmd.badges.is_empty());
+    }
+
+    #[test]
+    fn badge_builders_preserve_display_order() {
+        let cmd = Command::new("scene", "Scene", || {})
+            .badge(CommandBadge::new("Active", "green"))
+            .badges([
+                CommandBadge::new("Exterior", "orange"),
+                CommandBadge::new("Night", "blue"),
+            ]);
+        assert_eq!(
+            cmd.badges
+                .iter()
+                .map(|badge| badge.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Active", "Exterior", "Night"]
+        );
     }
 
     #[test]
@@ -322,7 +390,8 @@ mod tests {
     fn scene_branch(searchable: bool) -> Command {
         let b = Command::submenu("scenes", "Open Scene", || {
             vec![
-                Command::new("scene.a", "Sunset", || {}),
+                Command::new("scene.a", "Sunset", || {})
+                    .badge(CommandBadge::new("Exterior", "orange")),
                 Command::new("scene.b", "Dawn", || {}),
             ]
         });
@@ -352,10 +421,22 @@ mod tests {
             .iter()
             .find(|c| c.id == "scene.a")
             .expect("matching child is promoted to the top level");
-        // ...and carries the branch name as context.
-        assert_eq!(promoted.description.as_deref(), Some("Open Scene"));
+        // ...and carries the branch name as its search-result section.
+        assert_eq!(promoted.search_parent(), Some("Open Scene"));
+        assert_eq!(promoted.description, None);
         // The non-matching sibling is not surfaced.
         assert!(out.iter().all(|c| c.id != "scene.b"));
+    }
+
+    #[test]
+    fn searchable_branch_promotes_children_matching_badges() {
+        let items = vec![scene_branch(true)];
+        let out = filter_commands(&items, "exterior");
+        let promoted = out
+            .iter()
+            .find(|command| command.id == "scene.a")
+            .expect("a matching badge promotes its command");
+        assert_eq!(promoted.badges[0].label, "Exterior");
     }
 
     #[test]
