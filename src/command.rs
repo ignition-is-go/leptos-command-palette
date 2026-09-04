@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use crate::shortcut::{Modifier, Shortcut};
 
@@ -215,57 +215,322 @@ impl Command {
     }
 }
 
-/// Case-insensitive substring match of `q` against a command's name,
-/// description, or group.
-fn matches_query(cmd: &Command, q: &str) -> bool {
-    cmd.name.to_lowercase().contains(q)
-        || cmd
-            .description
-            .as_ref()
-            .map(|d| d.to_lowercase().contains(q))
-            .unwrap_or(false)
-        || cmd
-            .group
-            .as_ref()
-            .map(|g| g.to_lowercase().contains(q))
-            .unwrap_or(false)
-        || cmd
-            .badges
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct SearchScore {
+    order_penalty: usize,
+    boundary_penalty: usize,
+    field_penalty: usize,
+    span: usize,
+    start: usize,
+}
+
+struct SearchField {
+    text: String,
+    field_penalty: usize,
+    is_parent: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SearchOccurrence {
+    start: usize,
+    end: usize,
+    boundary_penalty: usize,
+    field_penalty: usize,
+    is_parent: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct OrderedState {
+    first_start: usize,
+    end: usize,
+    boundary_penalty: usize,
+    field_penalty: usize,
+    has_non_parent: bool,
+}
+
+fn query_terms(query: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .filter(|term| seen.insert(term.clone()))
+        .collect()
+}
+
+fn search_fields(cmd: &Command) -> Vec<SearchField> {
+    let mut fields = Vec::new();
+    if let Some(parent) = cmd.search_parent() {
+        fields.push(SearchField {
+            text: parent.to_lowercase(),
+            field_penalty: 1,
+            is_parent: true,
+        });
+    }
+    fields.push(SearchField {
+        text: cmd.name.to_lowercase(),
+        field_penalty: 0,
+        is_parent: false,
+    });
+    if let Some(description) = &cmd.description {
+        fields.push(SearchField {
+            text: description.to_lowercase(),
+            field_penalty: 2,
+            is_parent: false,
+        });
+    }
+    for badge in &cmd.badges {
+        fields.push(SearchField {
+            text: badge.label.to_lowercase(),
+            field_penalty: 1,
+            is_parent: false,
+        });
+    }
+    if let Some(group) = &cmd.group {
+        fields.push(SearchField {
+            text: group.to_lowercase(),
+            field_penalty: 2,
+            is_parent: false,
+        });
+    }
+    fields
+}
+
+fn boundary_penalty(text: &str, start: usize, end: usize) -> usize {
+    let starts_word = text
+        .get(..start)
+        .and_then(|prefix| prefix.chars().next_back())
+        .map(|character| !character.is_alphanumeric())
+        .unwrap_or(true);
+    let ends_word = text
+        .get(end..)
+        .and_then(|suffix| suffix.chars().next())
+        .map(|character| !character.is_alphanumeric())
+        .unwrap_or(true);
+    usize::from(!starts_word) + usize::from(!ends_word)
+}
+
+fn term_occurrences(fields: &[SearchField], term: &str) -> Vec<SearchOccurrence> {
+    let mut occurrences = Vec::new();
+    let mut field_offset = 0;
+    for field in fields {
+        for (local_start, matched) in field.text.match_indices(term) {
+            let local_end = local_start + matched.len();
+            occurrences.push(SearchOccurrence {
+                start: field_offset + local_start,
+                end: field_offset + local_end,
+                boundary_penalty: boundary_penalty(&field.text, local_start, local_end),
+                field_penalty: field.field_penalty,
+                is_parent: field.is_parent,
+            });
+        }
+        field_offset += field.text.len() + 1;
+    }
+    occurrences
+}
+
+fn ordered_state_key(state: &OrderedState) -> (usize, usize, usize, usize) {
+    (
+        state.boundary_penalty,
+        state.field_penalty,
+        state.end.saturating_sub(state.first_start),
+        state.first_start,
+    )
+}
+
+fn keep_better_state(slot: &mut Option<OrderedState>, candidate: OrderedState) {
+    if slot
+        .as_ref()
+        .is_none_or(|existing| ordered_state_key(&candidate) < ordered_state_key(existing))
+    {
+        *slot = Some(candidate);
+    }
+}
+
+fn best_ordered_state(
+    matches_by_term: &[Vec<SearchOccurrence>],
+    require_non_parent: bool,
+) -> Option<OrderedState> {
+    let first_matches = matches_by_term.first()?;
+    let mut states = vec![[None; 2]; first_matches.len()];
+    for (index, occurrence) in first_matches.iter().enumerate() {
+        let state = OrderedState {
+            first_start: occurrence.start,
+            end: occurrence.end,
+            boundary_penalty: occurrence.boundary_penalty,
+            field_penalty: occurrence.field_penalty,
+            has_non_parent: !occurrence.is_parent,
+        };
+        states[index][usize::from(state.has_non_parent)] = Some(state);
+    }
+
+    for term_index in 1..matches_by_term.len() {
+        let previous_matches = &matches_by_term[term_index - 1];
+        let current_matches = &matches_by_term[term_index];
+        let mut next_states = vec![[None; 2]; current_matches.len()];
+        for (current_index, current) in current_matches.iter().enumerate() {
+            for (previous_index, previous) in previous_matches.iter().enumerate() {
+                if previous.end > current.start {
+                    continue;
+                }
+                for previous_state in states[previous_index].iter().flatten() {
+                    let candidate = OrderedState {
+                        first_start: previous_state.first_start,
+                        end: current.end,
+                        boundary_penalty: previous_state.boundary_penalty
+                            + current.boundary_penalty,
+                        field_penalty: previous_state.field_penalty + current.field_penalty,
+                        has_non_parent: previous_state.has_non_parent || !current.is_parent,
+                    };
+                    keep_better_state(
+                        &mut next_states[current_index][usize::from(candidate.has_non_parent)],
+                        candidate,
+                    );
+                }
+            }
+        }
+        states = next_states;
+    }
+
+    states
+        .iter()
+        .flat_map(|state| {
+            if require_non_parent {
+                state[1].into_iter().collect::<Vec<_>>()
+            } else {
+                state.iter().flatten().copied().collect()
+            }
+        })
+        .min_by_key(ordered_state_key)
+}
+
+fn search_score(cmd: &Command, terms: &[String]) -> Option<SearchScore> {
+    let fields = search_fields(cmd);
+    let matches_by_term = terms
+        .iter()
+        .map(|term| term_occurrences(&fields, term))
+        .collect::<Vec<_>>();
+    if matches_by_term.iter().any(Vec::is_empty) {
+        return None;
+    }
+
+    let require_non_parent = cmd.search_parent().is_some();
+    if require_non_parent
+        && !matches_by_term
             .iter()
-            .any(|badge| badge.label.to_lowercase().contains(q))
+            .flatten()
+            .any(|occurrence| !occurrence.is_parent)
+    {
+        // Matching only the submenu title should keep the submenu itself as the
+        // result instead of expanding every one of its children.
+        return None;
+    }
+
+    if let Some(state) = best_ordered_state(&matches_by_term, require_non_parent) {
+        return Some(SearchScore {
+            order_penalty: 0,
+            boundary_penalty: state.boundary_penalty,
+            field_penalty: state.field_penalty,
+            span: state.end.saturating_sub(state.first_start),
+            start: state.first_start,
+        });
+    }
+
+    let mut chosen = matches_by_term
+        .iter()
+        .map(|matches| {
+            matches
+                .iter()
+                .min_by_key(|occurrence| {
+                    (
+                        occurrence.boundary_penalty,
+                        occurrence.field_penalty,
+                        occurrence.start,
+                    )
+                })
+                .copied()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if require_non_parent && chosen.iter().all(|occurrence| occurrence.is_parent) {
+        let (term_index, replacement) = matches_by_term
+            .iter()
+            .enumerate()
+            .flat_map(|(term_index, matches)| {
+                matches
+                    .iter()
+                    .filter(|occurrence| !occurrence.is_parent)
+                    .map(move |occurrence| (term_index, *occurrence))
+            })
+            .min_by_key(|(_, occurrence)| {
+                (
+                    occurrence.boundary_penalty,
+                    occurrence.field_penalty,
+                    occurrence.start,
+                )
+            })?;
+        chosen[term_index] = replacement;
+    }
+
+    let mut inversions = 0;
+    for left in 0..chosen.len() {
+        for right in (left + 1)..chosen.len() {
+            inversions += usize::from(chosen[left].start > chosen[right].start);
+        }
+    }
+    let start = chosen.iter().map(|occurrence| occurrence.start).min()?;
+    let end = chosen.iter().map(|occurrence| occurrence.end).max()?;
+    Some(SearchScore {
+        order_penalty: 1 + inversions,
+        boundary_penalty: chosen
+            .iter()
+            .map(|occurrence| occurrence.boundary_penalty)
+            .sum(),
+        field_penalty: chosen
+            .iter()
+            .map(|occurrence| occurrence.field_penalty)
+            .sum(),
+        span: end.saturating_sub(start),
+        start,
+    })
 }
 
 /// Filter `items` by `query` for display in the palette.
 ///
 /// An empty query returns `items` unchanged (the menu, with branches shown as
-/// drill-ins). Otherwise each matching item is included, and for any *searchable
-/// branch* (see [`Command::searchable_children`]) its matching children are
-/// surfaced inline too — promoted with the branch's name as context — so a
-/// sub-option can be reached without entering the submenu first. Results are
-/// de-duplicated by id (first occurrence wins) to keep row keys unique.
+/// drill-ins). Otherwise every whitespace-separated term must match somewhere
+/// in a command's name, description, group, badges, or promoted submenu parent.
+/// Matches are ranked by query order, word boundaries, field relevance, and
+/// proximity. Searchable branch children are surfaced inline and results are
+/// de-duplicated by id after ranking.
 pub(crate) fn filter_commands(items: &[Command], query: &str) -> Vec<Command> {
-    let q = query.trim().to_lowercase();
-    if q.is_empty() {
+    let terms = query_terms(query);
+    if terms.is_empty() {
         return items.to_vec();
     }
-    let mut out: Vec<Command> = Vec::new();
+    let mut ranked: Vec<(SearchScore, usize, Command)> = Vec::new();
+    let mut ordinal = 0;
     for cmd in items {
-        if matches_query(cmd, &q) {
-            out.push(cmd.clone());
+        if let Some(score) = search_score(cmd, &terms) {
+            ranked.push((score, ordinal, cmd.clone()));
+            ordinal += 1;
         }
         if cmd.search_children {
             if let Some(children) = cmd.resolve_children() {
                 for child in children {
-                    if matches_query(&child, &q) {
-                        out.push(child.promoted_under(&cmd.name));
+                    let child = child.promoted_under(&cmd.name);
+                    if let Some(score) = search_score(&child, &terms) {
+                        ranked.push((score, ordinal, child));
+                        ordinal += 1;
                     }
                 }
             }
         }
     }
-    let mut seen = std::collections::HashSet::new();
-    out.retain(|c| seen.insert(c.id.clone()));
-    out
+    ranked.sort_by_key(|(score, order, _)| (*score, *order));
+    let mut seen = HashSet::new();
+    ranked
+        .into_iter()
+        .filter_map(|(_, _, command)| seen.insert(command.id.clone()).then_some(command))
+        .collect()
 }
 
 impl PartialEq for Command {
@@ -437,6 +702,94 @@ mod tests {
             .find(|command| command.id == "scene.a")
             .expect("a matching badge promotes its command");
         assert_eq!(promoted.badges[0].label, "Exterior");
+    }
+
+    #[test]
+    fn search_terms_intersect_across_names_and_badges() {
+        let items = vec![
+            Command::new("scene.uds", "The UDS", || {}).badges([
+                CommandBadge::new("_CORE", "lime"),
+                CommandBadge::new("Active", "green"),
+            ]),
+            Command::new("scene.other", "Other UDS", || {})
+                .badge(CommandBadge::new("Archive", "gray")),
+        ];
+
+        let out = filter_commands(&items, "uds core active");
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "scene.uds");
+    }
+
+    #[test]
+    fn every_search_term_is_required() {
+        let items =
+            vec![Command::new("scene.uds", "The UDS", || {})
+                .badge(CommandBadge::new("Core", "lime"))];
+
+        assert!(filter_commands(&items, "uds missing").is_empty());
+    }
+
+    #[test]
+    fn matches_in_query_order_rank_first() {
+        let items = vec![
+            Command::new("reversed", "Beta Alpha", || {}),
+            Command::new("ordered", "Alpha Beta", || {}),
+        ];
+
+        let out = filter_commands(&items, "alpha beta");
+
+        assert_eq!(
+            out.iter()
+                .map(|command| command.id.as_str())
+                .collect::<Vec<_>>(),
+            ["ordered", "reversed"]
+        );
+    }
+
+    #[test]
+    fn closer_matches_rank_first() {
+        let items = vec![
+            Command::new("far", "Alpha Something Far Away Beta", || {}),
+            Command::new("close", "Alpha Beta", || {}),
+        ];
+
+        let out = filter_commands(&items, "alpha beta");
+
+        assert_eq!(
+            out.iter()
+                .map(|command| command.id.as_str())
+                .collect::<Vec<_>>(),
+            ["close", "far"]
+        );
+    }
+
+    #[test]
+    fn word_boundary_matches_rank_before_embedded_substrings() {
+        let items = vec![
+            Command::new("embedded", "Xalpha Beta", || {}),
+            Command::new("boundary", "Alpha Beta", || {}),
+        ];
+
+        let out = filter_commands(&items, "alpha beta");
+
+        assert_eq!(
+            out.iter()
+                .map(|command| command.id.as_str())
+                .collect::<Vec<_>>(),
+            ["boundary", "embedded"]
+        );
+    }
+
+    #[test]
+    fn promoted_parent_can_supply_a_search_term() {
+        let items = vec![scene_branch(true)];
+
+        let out = filter_commands(&items, "open sunset");
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "scene.a");
+        assert_eq!(out[0].search_parent(), Some("Open Scene"));
     }
 
     #[test]
