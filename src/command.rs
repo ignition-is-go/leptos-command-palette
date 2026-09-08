@@ -41,6 +41,9 @@ pub struct Command {
     pub shortcut: Option<Shortcut>,
     /// Compact contextual labels rendered below the command name.
     pub badges: Vec<CommandBadge>,
+    /// Hidden search aliases. Matched like any other field but never rendered,
+    /// so a command can be found by vocabulary its label does not use.
+    pub keywords: Vec<String>,
     /// The action to execute when this command is selected (no-op for branches).
     action: Arc<dyn Fn() + Send + Sync>,
     /// When present, this command is a *branch*: selecting it drills into a
@@ -68,6 +71,7 @@ impl Command {
             group: None,
             shortcut: None,
             badges: Vec::new(),
+            keywords: Vec::new(),
             action: Arc::new(action),
             children: None,
             search_children: false,
@@ -104,6 +108,7 @@ impl Command {
             group: None,
             shortcut: None,
             badges: Vec::new(),
+            keywords: Vec::new(),
             action: Arc::new(|| {}),
             children: Some(Arc::new(children)),
             search_children: false,
@@ -166,6 +171,36 @@ impl Command {
     /// Add contextual badges to this command in display order.
     pub fn badges(mut self, badges: impl IntoIterator<Item = CommandBadge>) -> Self {
         self.badges.extend(badges);
+        self
+    }
+
+    /// Add one hidden search alias.
+    ///
+    /// Keywords are searched but never displayed, so a command stays findable
+    /// under vocabulary its label does not use — "Detach Agent" under "kill",
+    /// or "Attach Agent" under "resume". They rank below the name and above the
+    /// description, so an alias hit does not outrank a real title match.
+    ///
+    /// ```ignore
+    /// use leptos_command_palette::Command;
+    ///
+    /// Command::new("pane.close", "Close Pane", || {}).keyword("kill");
+    /// ```
+    pub fn keyword(mut self, keyword: impl Into<String>) -> Self {
+        self.keywords.push(keyword.into());
+        self
+    }
+
+    /// Add hidden search aliases — see [`Command::keyword`].
+    ///
+    /// ```ignore
+    /// use leptos_command_palette::Command;
+    ///
+    /// Command::new("session.attach", "Attach Agent", || {})
+    ///     .keywords(["resume", "reconnect", "open"]);
+    /// ```
+    pub fn keywords(mut self, keywords: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.keywords.extend(keywords.into_iter().map(Into::into));
         self
     }
 
@@ -271,6 +306,13 @@ fn search_fields(cmd: &Command) -> Vec<SearchField> {
         field_penalty: 0,
         is_parent: false,
     });
+    for keyword in &cmd.keywords {
+        fields.push(SearchField {
+            text: keyword.to_lowercase(),
+            field_penalty: 1,
+            is_parent: false,
+        });
+    }
     if let Some(description) = &cmd.description {
         fields.push(SearchField {
             text: description.to_lowercase(),
@@ -497,7 +539,8 @@ fn search_score(cmd: &Command, terms: &[String]) -> Option<SearchScore> {
 ///
 /// An empty query returns `items` unchanged (the menu, with branches shown as
 /// drill-ins). Otherwise every whitespace-separated term must match somewhere
-/// in a command's name, description, group, badges, or promoted submenu parent.
+/// in a command's name, keywords, description, group, badges, or promoted
+/// submenu parent.
 /// Matches are ranked by query order, word boundaries, field relevance, and
 /// proximity. Searchable branch children are surfaced inline and results are
 /// de-duplicated by id after ranking.
@@ -546,6 +589,7 @@ impl std::fmt::Debug for Command {
             .field("name", &self.name)
             .field("description", &self.description)
             .field("group", &self.group)
+            .field("keywords", &self.keywords)
             .field("shortcut", &self.shortcut)
             .field("badges", &self.badges)
             .field("is_branch", &self.is_branch())
@@ -582,6 +626,95 @@ mod tests {
         let cmd = Command::new("save", "Save", || {});
         assert!(!cmd.is_branch());
         assert!(cmd.resolve_children().is_none());
+        assert!(cmd.badges.is_empty());
+    }
+
+    #[test]
+    fn a_submenu_can_carry_a_shortcut_and_stays_a_branch() {
+        // The provider routes a branch's shortcut to open-and-drill-in rather
+        // than to its action, because a branch's action is a deliberate no-op.
+        let cmd = Command::submenu("attach", "Attach Agent…", || {
+            vec![Command::new("a", "exec-01 · runner", || {})]
+        })
+        .shortcut(vec![Modifier::Alt], "a");
+        assert!(cmd.is_branch());
+        assert!(cmd.shortcut.is_some());
+        assert_eq!(cmd.resolve_children().map(|c| c.len()), Some(1));
+    }
+
+    #[test]
+    fn keyword_builders_accumulate_in_order() {
+        let cmd = Command::new("pane.close", "Close Pane", || {})
+            .keyword("kill")
+            .keywords(["dismiss", "remove"]);
+        assert_eq!(cmd.keywords, vec!["kill", "dismiss", "remove"]);
+    }
+
+    #[test]
+    fn new_command_has_no_keywords() {
+        assert!(Command::new("save", "Save", || {}).keywords.is_empty());
+    }
+
+    #[test]
+    fn keyword_matches_a_query_the_name_does_not_contain() {
+        let items = vec![
+            Command::new("pane.close", "Close Pane", || {}).keyword("kill"),
+            Command::new("other", "Unrelated", || {}),
+        ];
+        let out = filter_commands(&items, "kill");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].id, "pane.close");
+    }
+
+    #[test]
+    fn keywords_are_matched_case_insensitively() {
+        let items = vec![Command::new("s", "Attach Agent", || {}).keyword("Resume")];
+        assert_eq!(filter_commands(&items, "resume").len(), 1);
+        assert_eq!(filter_commands(&items, "RESUME").len(), 1);
+    }
+
+    #[test]
+    fn a_name_match_outranks_a_keyword_match() {
+        // Registration order deliberately puts the keyword-only command first,
+        // so only ranking can put the title match on top.
+        let items = vec![
+            Command::new("keyword.hit", "Unrelated Label", || {}).keyword("archive"),
+            Command::new("name.hit", "Archive Session", || {}),
+        ];
+        let out = filter_commands(&items, "archive");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].id, "name.hit", "title match should rank first");
+    }
+
+    #[test]
+    fn a_keyword_match_outranks_a_description_match() {
+        let items = vec![
+            Command::new("desc.hit", "Unrelated", || {}).description("mentions resume in prose"),
+            Command::new("keyword.hit", "Attach Agent", || {}).keyword("resume"),
+        ];
+        let out = filter_commands(&items, "resume");
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].id, "keyword.hit");
+    }
+
+    #[test]
+    fn keywords_participate_in_multi_term_queries() {
+        let items = vec![Command::new("s", "Detach Agent", || {}).keywords(["kill", "pane"])];
+        // One term from the name, one from a keyword.
+        assert_eq!(filter_commands(&items, "detach kill").len(), 1);
+        // Both terms from keywords.
+        assert_eq!(filter_commands(&items, "kill pane").len(), 1);
+        // A term matching nothing still excludes the command.
+        assert!(filter_commands(&items, "detach nonsense").is_empty());
+    }
+
+    #[test]
+    fn keywords_are_not_displayed_anywhere() {
+        // Keywords are search-only: they must not leak into the rendered
+        // description, name, or badges.
+        let cmd = Command::new("s", "Attach Agent", || {}).keyword("resume");
+        assert_eq!(cmd.name, "Attach Agent");
+        assert!(cmd.description.is_none());
         assert!(cmd.badges.is_empty());
     }
 

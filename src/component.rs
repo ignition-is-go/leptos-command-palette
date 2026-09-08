@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::command::{filter_commands, Command, CommandPalettePosition};
 use crate::context::{use_command_palette, CommandPaletteContext};
@@ -27,6 +28,25 @@ fn command_sections(commands: Vec<Command>) -> Vec<CommandSection> {
         }
     }
     sections
+}
+
+/// Whether a key event was aimed at somewhere text is being entered.
+///
+/// Registered command shortcuts are skipped for these targets so typing in a
+/// form control cannot trigger a command.
+fn has_editable_target(event: &web_sys::KeyboardEvent) -> bool {
+    let Some(target) = event.target() else {
+        return false;
+    };
+    let Ok(element) = target.dyn_into::<web_sys::Element>() else {
+        return false;
+    };
+    if matches!(element.tag_name().as_str(), "INPUT" | "TEXTAREA" | "SELECT") {
+        return true;
+    }
+    element
+        .dyn_ref::<web_sys::HtmlElement>()
+        .is_some_and(web_sys::HtmlElement::is_content_editable)
 }
 
 /// Provides the command palette context and renders children.
@@ -61,13 +81,29 @@ pub fn CommandPaletteProvider(children: Children) -> impl IntoView {
             return;
         }
 
+        // A registered shortcut must not fire while the user is typing. The
+        // Main+K toggle and Escape above stay global on purpose — they are the
+        // escape hatches out of an embedded surface — but a command binding
+        // reaching a command mid-word is never what the author meant.
+        if has_editable_target(&ev) {
+            return;
+        }
+
         // Check registered command shortcuts
         let cmds = ctx.commands().get_untracked();
         for cmd in &cmds {
             if let Some(ref shortcut) = cmd.shortcut {
                 if shortcut.matches(&ev) {
                     ev.prevent_default();
-                    cmd.execute();
+                    if cmd.is_branch() {
+                        // A branch carries a no-op action, so executing it would
+                        // do nothing at all. Its shortcut means "show me these
+                        // choices": open the palette already drilled into it.
+                        ctx.open();
+                        ctx.enter(cmd);
+                    } else {
+                        cmd.execute();
+                    }
                     return;
                 }
             }
