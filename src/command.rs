@@ -630,6 +630,19 @@ mod tests {
     }
 
     #[test]
+    fn a_submenu_can_carry_a_shortcut_and_stays_a_branch() {
+        // The provider routes a branch's shortcut to open-and-drill-in rather
+        // than to its action, because a branch's action is a deliberate no-op.
+        let cmd = Command::submenu("attach", "Attach Agent…", || {
+            vec![Command::new("a", "exec-01 · runner", || {})]
+        })
+        .shortcut(vec![Modifier::Alt], "a");
+        assert!(cmd.is_branch());
+        assert!(cmd.shortcut.is_some());
+        assert_eq!(cmd.resolve_children().map(|c| c.len()), Some(1));
+    }
+
+    #[test]
     fn keyword_builders_accumulate_in_order() {
         let cmd = Command::new("pane.close", "Close Pane", || {})
             .keyword("kill")

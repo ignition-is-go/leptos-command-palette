@@ -95,7 +95,15 @@ pub fn CommandPaletteProvider(children: Children) -> impl IntoView {
             if let Some(ref shortcut) = cmd.shortcut {
                 if shortcut.matches(&ev) {
                     ev.prevent_default();
-                    cmd.execute();
+                    if cmd.is_branch() {
+                        // A branch carries a no-op action, so executing it would
+                        // do nothing at all. Its shortcut means "show me these
+                        // choices": open the palette already drilled into it.
+                        ctx.open();
+                        ctx.enter(cmd);
+                    } else {
+                        cmd.execute();
+                    }
                     return;
                 }
             }
