@@ -1,50 +1,11 @@
+use leptos::children::ViewFn;
+
 use std::{collections::HashSet, sync::Arc};
 
 use crate::shortcut::{Modifier, Shortcut};
 
 /// A unique identifier for a command.
 pub type CommandId = String;
-
-/// Where a command badge is rendered within its row.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum CommandBadgePlacement {
-    /// Contextual labels below the command name, wrapping together.
-    #[default]
-    Inline,
-    /// Metadata in the separate right-hand column, beside shortcuts.
-    Trailing,
-}
-
-/// A compact colored label displayed with a command.
-///
-/// Applications can use badges for contextual metadata such as tags, status,
-/// environment, or ownership without encoding presentation into descriptions.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CommandBadge {
-    /// Text displayed inside the badge and included in palette search.
-    pub label: String,
-    /// CSS color used for the badge dot, text, border, and tinted background.
-    pub color: String,
-    /// Layout placement; constructors preserve the existing inline behavior.
-    pub placement: CommandBadgePlacement,
-}
-
-impl CommandBadge {
-    pub fn new(label: impl Into<String>, color: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            color: color.into(),
-            placement: CommandBadgePlacement::Inline,
-        }
-    }
-
-    /// Place this badge in the row's separate right-hand metadata column.
-    /// Placement does not change the badge's search text or identity.
-    pub fn trailing(mut self) -> Self {
-        self.placement = CommandBadgePlacement::Trailing;
-        self
-    }
-}
 
 /// A command that can appear in the palette.
 #[derive(Clone)]
@@ -59,8 +20,10 @@ pub struct Command {
     pub group: Option<String>,
     /// Optional keyboard shortcut — both the keybinding and the display hint.
     pub shortcut: Option<Shortcut>,
-    /// Compact contextual labels rendered below the command name.
-    pub badges: Vec<CommandBadge>,
+    /// Caller-owned content below the name/description, built under the row owner.
+    pub second_row: Option<ViewFn>,
+    /// Additional searchable text supplied separately from the rendered view.
+    pub search_terms: Vec<String>,
     /// Hidden search aliases. Matched like any other field but never rendered,
     /// so a command can be found by vocabulary its label does not use.
     pub keywords: Vec<String>,
@@ -90,7 +53,8 @@ impl Command {
             description: None,
             group: None,
             shortcut: None,
-            badges: Vec::new(),
+            second_row: None,
+            search_terms: Vec::new(),
             keywords: Vec::new(),
             action: Arc::new(action),
             children: None,
@@ -127,7 +91,8 @@ impl Command {
             description: None,
             group: None,
             shortcut: None,
-            badges: Vec::new(),
+            second_row: None,
+            search_terms: Vec::new(),
             keywords: Vec::new(),
             action: Arc::new(|| {}),
             children: Some(Arc::new(children)),
@@ -182,15 +147,18 @@ impl Command {
         self
     }
 
-    /// Add one contextual badge to this command.
-    pub fn badge(mut self, badge: CommandBadge) -> Self {
-        self.badges.push(badge);
+    /// Supply caller-owned second-row content. The factory runs when the row is
+    /// rendered, under its Leptos owner, and may contain reactive views.
+    /// Search never invokes this factory or extracts text from its output.
+    pub fn second_row(mut self, view: impl Into<ViewFn>) -> Self {
+        self.second_row = Some(view.into());
         self
     }
 
-    /// Add contextual badges to this command in display order.
-    pub fn badges(mut self, badges: impl IntoIterator<Item = CommandBadge>) -> Self {
-        self.badges.extend(badges);
+    /// Add searchable text for custom content, independently of its rendering.
+    /// Terms rank like keywords: below the name and above the description.
+    pub fn search_terms(mut self, terms: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.search_terms.extend(terms.into_iter().map(Into::into));
         self
     }
 
@@ -340,9 +308,9 @@ fn search_fields(cmd: &Command) -> Vec<SearchField> {
             is_parent: false,
         });
     }
-    for badge in &cmd.badges {
+    for term in &cmd.search_terms {
         fields.push(SearchField {
-            text: badge.label.to_lowercase(),
+            text: term.to_lowercase(),
             field_penalty: 1,
             is_parent: false,
         });
@@ -559,7 +527,7 @@ fn search_score(cmd: &Command, terms: &[String]) -> Option<SearchScore> {
 ///
 /// An empty query returns `items` unchanged (the menu, with branches shown as
 /// drill-ins). Otherwise every whitespace-separated term must match somewhere
-/// in a command's name, keywords, description, group, badges, or promoted
+/// in a command's name, keywords, description, group, additional search terms, or promoted
 /// submenu parent.
 /// Matches are ranked by query order, word boundaries, field relevance, and
 /// proximity. Searchable branch children are surfaced inline and results are
@@ -611,7 +579,8 @@ impl std::fmt::Debug for Command {
             .field("group", &self.group)
             .field("keywords", &self.keywords)
             .field("shortcut", &self.shortcut)
-            .field("badges", &self.badges)
+            .field("search_terms", &self.search_terms)
+            .field("has_second_row", &self.second_row.is_some())
             .field("is_branch", &self.is_branch())
             .field("search_parent", &self.search_parent)
             .finish()
@@ -641,16 +610,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn trailing_placement_preserves_default_inline_behavior_and_search_ranking() {
-        let inline = CommandBadge::new("Ready", "blue");
-        assert_eq!(inline.placement, CommandBadgePlacement::Inline);
-        let trailing = inline.clone().trailing();
-        assert_eq!(trailing.placement, CommandBadgePlacement::Trailing);
-        assert_eq!(trailing.label, inline.label);
-        assert_eq!(trailing.color, inline.color);
+    fn search_terms_preserve_ranking_without_rendering_custom_content() {
         let commands = vec![
+            Command::new("terms", "Other scene", || {})
+                .search_terms(["Ready"])
+                .second_row(|| -> String { panic!("search must not build a view") }),
+            Command::new("description", "Other scene", || {}).description("Ready"),
             Command::new("title", "Ready scene", || {}),
-            Command::new("badge", "Other scene", || {}).badges(vec![trailing]),
         ];
         let results = filter_commands(&commands, "ready");
         assert_eq!(
@@ -658,12 +624,10 @@ mod tests {
                 .iter()
                 .map(|cmd| cmd.id.as_str())
                 .collect::<Vec<_>>(),
-            ["title", "badge"]
+            ["title", "terms", "description"]
         );
-        assert_eq!(
-            results[1].badges[0].placement,
-            CommandBadgePlacement::Trailing
-        );
+        assert!(results[1].second_row.is_some());
+        assert!(filter_commands(&commands, "view-only").is_empty());
     }
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -672,7 +636,8 @@ mod tests {
         let cmd = Command::new("save", "Save", || {});
         assert!(!cmd.is_branch());
         assert!(cmd.resolve_children().is_none());
-        assert!(cmd.badges.is_empty());
+        assert!(cmd.second_row.is_none());
+        assert!(cmd.search_terms.is_empty());
     }
 
     #[test]
@@ -757,28 +722,21 @@ mod tests {
     #[test]
     fn keywords_are_not_displayed_anywhere() {
         // Keywords are search-only: they must not leak into the rendered
-        // description, name, or badges.
+        // description, name, or custom content.
         let cmd = Command::new("s", "Attach Agent", || {}).keyword("resume");
         assert_eq!(cmd.name, "Attach Agent");
         assert!(cmd.description.is_none());
-        assert!(cmd.badges.is_empty());
+        assert!(cmd.second_row.is_none());
+        assert!(cmd.search_terms.is_empty());
     }
 
     #[test]
-    fn badge_builders_preserve_display_order() {
+    fn search_term_builder_accumulates_without_creating_display_content() {
         let cmd = Command::new("scene", "Scene", || {})
-            .badge(CommandBadge::new("Active", "green"))
-            .badges([
-                CommandBadge::new("Exterior", "orange"),
-                CommandBadge::new("Night", "blue"),
-            ]);
-        assert_eq!(
-            cmd.badges
-                .iter()
-                .map(|badge| badge.label.as_str())
-                .collect::<Vec<_>>(),
-            ["Active", "Exterior", "Night"]
-        );
+            .search_terms(["Active"])
+            .search_terms(["Exterior", "Night"]);
+        assert_eq!(cmd.search_terms, ["Active", "Exterior", "Night"]);
+        assert!(cmd.second_row.is_none());
     }
 
     #[test]
@@ -835,7 +793,8 @@ mod tests {
         let b = Command::submenu("scenes", "Open Scene", || {
             vec![
                 Command::new("scene.a", "Sunset", || {})
-                    .badge(CommandBadge::new("Exterior", "orange")),
+                    .search_terms(["Exterior"])
+                    .second_row(|| "Caller-owned scene details"),
                 Command::new("scene.b", "Dawn", || {}),
             ]
         });
@@ -873,25 +832,22 @@ mod tests {
     }
 
     #[test]
-    fn searchable_branch_promotes_children_matching_badges() {
+    fn searchable_branch_promotes_children_matching_additional_terms() {
         let items = vec![scene_branch(true)];
         let out = filter_commands(&items, "exterior");
         let promoted = out
             .iter()
             .find(|command| command.id == "scene.a")
-            .expect("a matching badge promotes its command");
-        assert_eq!(promoted.badges[0].label, "Exterior");
+            .expect("an additional term promotes its command");
+        assert_eq!(promoted.search_terms[0], "Exterior");
+        assert!(promoted.second_row.is_some());
     }
 
     #[test]
-    fn search_terms_intersect_across_names_and_badges() {
+    fn search_terms_intersect_across_names_and_additional_terms() {
         let items = vec![
-            Command::new("scene.uds", "The UDS", || {}).badges([
-                CommandBadge::new("_CORE", "lime"),
-                CommandBadge::new("Active", "green"),
-            ]),
-            Command::new("scene.other", "Other UDS", || {})
-                .badge(CommandBadge::new("Archive", "gray")),
+            Command::new("scene.uds", "The UDS", || {}).search_terms(["_CORE", "Active"]),
+            Command::new("scene.other", "Other UDS", || {}).search_terms(["Archive"]),
         ];
 
         let out = filter_commands(&items, "uds core active");
@@ -902,9 +858,7 @@ mod tests {
 
     #[test]
     fn every_search_term_is_required() {
-        let items =
-            vec![Command::new("scene.uds", "The UDS", || {})
-                .badge(CommandBadge::new("Core", "lime"))];
+        let items = vec![Command::new("scene.uds", "The UDS", || {}).search_terms(["Core"])];
 
         assert!(filter_commands(&items, "uds missing").is_empty());
     }
