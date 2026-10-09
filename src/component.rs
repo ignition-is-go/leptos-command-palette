@@ -1,7 +1,9 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::command::{filter_commands, Command, CommandPalettePosition};
+use crate::command::{
+    filter_commands, Command, CommandBadge, CommandBadgePlacement, CommandPalettePosition,
+};
 use crate::context::{use_command_palette, CommandPaletteContext};
 use crate::shortcut::{Modifier, Shortcut};
 use crate::theme::*;
@@ -9,6 +11,52 @@ use crate::theme::*;
 struct CommandSection {
     heading: Option<String>,
     commands: Vec<Command>,
+}
+
+fn badge_group(badges: &[CommandBadge], placement: CommandBadgePlacement) -> Option<impl IntoView> {
+    let badges = badges
+        .iter()
+        .filter(|badge| badge.placement == placement)
+        .cloned()
+        .collect::<Vec<_>>();
+    if badges.is_empty() {
+        return None;
+    }
+    let (role, style) = match placement {
+        CommandBadgePlacement::Inline => (
+            "inline",
+            "display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:4px;min-width:0",
+        ),
+        CommandBadgePlacement::Trailing => (
+            "trailing",
+            "display:flex;align-items:center;gap:4px;min-width:0;max-width:100%",
+        ),
+    };
+    Some(view! {
+        <div data-command-palette-badges=role style=style>
+            {badges.into_iter().map(|badge| {
+                let badge_style = format!(
+                    "display:inline-flex;align-items:center;gap:4px;padding:1px 6px;\
+                     border-radius:999px;white-space:nowrap;font-size:11px;line-height:16px;\
+                     min-width:0;max-width:100%;box-sizing:border-box;\
+                     color:{color};border:1px solid color-mix(in srgb,{color} 38%,transparent);\
+                     background:color-mix(in srgb,{color} 16%,transparent)",
+                    color = badge.color,
+                );
+                let dot_style = format!(
+                    "width:6px;height:6px;border-radius:50%;flex:none;background:{}",
+                    badge.color,
+                );
+                let title = badge.label.clone();
+                view! {
+                    <span data-command-palette-badge=role style=badge_style title=title>
+                        <span style=dot_style></span>
+                        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">{badge.label}</span>
+                    </span>
+                }
+            }).collect_view()}
+        </div>
+    })
 }
 
 fn command_sections(commands: Vec<Command>) -> Vec<CommandSection> {
@@ -478,6 +526,7 @@ pub fn CommandPalette(
                                         let cmd_for_click = cmd.clone();
                                         view! {
                                             <div
+                                                data-command-palette-command=cmd.id.clone()
                                                 data-command-palette-selected=move || {
                                                     (selected_id.get().as_deref() == Some(&cmd_id_attr))
                                                         .then_some("true")
@@ -508,40 +557,17 @@ pub fn CommandPalette(
                                                     set_selected_id.set(Some(cmd_id_hover.clone()));
                                                 }
                                             >
-                                                <div>
-                                                    <div>{cmd.name.clone()}</div>
+                                                <div style="flex:1;min-width:0">
+                                                    <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{cmd.name.clone()}</div>
                                                     {cmd.description.as_ref().map(|d| {
                                                         view! {
                                                             <div style={desc_style.clone()}>{d.clone()}</div>
                                                         }
                                                     })}
-                                                    {(!cmd.badges.is_empty()).then(|| {
-                                                        view! {
-                                                            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:4px">
-                                                                {cmd.badges.clone().into_iter().map(|badge| {
-                                                                    let badge_style = format!(
-                                                                        "display:inline-flex;align-items:center;gap:4px;padding:1px 6px;\
-                                                                         border-radius:999px;white-space:nowrap;font-size:11px;line-height:16px;\
-                                                                         color:{color};border:1px solid color-mix(in srgb,{color} 38%,transparent);\
-                                                                         background:color-mix(in srgb,{color} 16%,transparent)",
-                                                                        color = badge.color,
-                                                                    );
-                                                                    let dot_style = format!(
-                                                                        "width:6px;height:6px;border-radius:50%;flex:none;background:{}",
-                                                                        badge.color,
-                                                                    );
-                                                                    view! {
-                                                                        <span style=badge_style>
-                                                                            <span style=dot_style></span>
-                                                                            {badge.label}
-                                                                        </span>
-                                                                    }
-                                                                }).collect_view()}
-                                                            </div>
-                                                        }
-                                                    })}
+                                                    {badge_group(&cmd.badges, CommandBadgePlacement::Inline)}
                                                 </div>
-                                                <div style="display:flex;align-items:center">
+                                                <div style="display:flex;align-items:center;flex:0 1 auto;min-width:0;max-width:45%;margin-left:12px">
+                                                    {badge_group(&cmd.badges, CommandBadgePlacement::Trailing)}
                                                     {cmd.shortcut.as_ref().map(|s| {
                                                         view! {
                                                             <div style={shortcut_style.clone()}>{s.to_string()}</div>
@@ -572,6 +598,71 @@ pub fn CommandPalette(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renderer_separates_inline_and_trailing_badges_with_equal_labels() {
+        Owner::new().with(|| {
+            let badges = vec![
+                CommandBadge::new("Ready", "blue"),
+                CommandBadge::new("Ready", "green").trailing(),
+            ];
+            let inline = badge_group(&badges, CommandBadgePlacement::Inline)
+                .unwrap()
+                .into_view()
+                .to_html();
+            let trailing = badge_group(&badges, CommandBadgePlacement::Trailing)
+                .unwrap()
+                .into_view()
+                .to_html();
+            assert!(inline.contains("data-command-palette-badges=\"inline\""));
+            assert!(inline.contains("color:blue"));
+            assert!(!inline.contains("color:green"));
+            assert!(trailing.contains("data-command-palette-badges=\"trailing\""));
+            assert!(trailing.contains("color:green"));
+            assert!(!trailing.contains("color:blue"));
+            assert!(badge_group(&[badges[1].clone()], CommandBadgePlacement::Inline).is_none());
+            assert!(badge_group(&[badges[0].clone()], CommandBadgePlacement::Trailing).is_none());
+        });
+    }
+
+    #[test]
+    fn stable_ids_refresh_badge_placement_in_root_search_and_submenus() {
+        Owner::new().with(|| {
+            let ctx = CommandPaletteContext::new();
+            let (query, _) = signal("ready".to_string());
+            let command = || {
+                Command::new("scene", "Scene", || {})
+                    .badges(vec![CommandBadge::new("Ready", "blue")])
+            };
+            ctx.register(command());
+            let root = matching_commands(current_commands(ctx), query);
+            assert_eq!(
+                root.get_untracked()[0].badges[0].placement,
+                CommandBadgePlacement::Inline
+            );
+            let mut updated = command();
+            updated.badges[0] = updated.badges[0].clone().trailing();
+            ctx.register(updated.clone());
+            assert_eq!(
+                root.get_untracked()[0].badges[0].placement,
+                CommandBadgePlacement::Trailing
+            );
+            ctx.enter(&Command::submenu("scenes", "Open Scene", move || {
+                vec![command()]
+            }));
+            assert_eq!(
+                root.get_untracked()[0].badges[0].placement,
+                CommandBadgePlacement::Inline
+            );
+            ctx.nav_stack()
+                .update(|levels| levels[0].items = vec![updated]);
+            assert_eq!(
+                root.get_untracked()[0].badges[0].placement,
+                CommandBadgePlacement::Trailing
+            );
+            assert_eq!(query.get_untracked(), "ready");
+        });
+    }
 
     #[test]
     fn promoted_children_share_one_parent_section() {

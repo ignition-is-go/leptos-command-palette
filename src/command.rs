@@ -5,6 +5,16 @@ use crate::shortcut::{Modifier, Shortcut};
 /// A unique identifier for a command.
 pub type CommandId = String;
 
+/// Where a command badge is rendered within its row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CommandBadgePlacement {
+    /// Contextual labels below the command name, wrapping together.
+    #[default]
+    Inline,
+    /// Metadata in the separate right-hand column, beside shortcuts.
+    Trailing,
+}
+
 /// A compact colored label displayed with a command.
 ///
 /// Applications can use badges for contextual metadata such as tags, status,
@@ -15,6 +25,8 @@ pub struct CommandBadge {
     pub label: String,
     /// CSS color used for the badge dot, text, border, and tinted background.
     pub color: String,
+    /// Layout placement; constructors preserve the existing inline behavior.
+    pub placement: CommandBadgePlacement,
 }
 
 impl CommandBadge {
@@ -22,7 +34,15 @@ impl CommandBadge {
         Self {
             label: label.into(),
             color: color.into(),
+            placement: CommandBadgePlacement::Inline,
         }
+    }
+
+    /// Place this badge in the row's separate right-hand metadata column.
+    /// Placement does not change the badge's search text or identity.
+    pub fn trailing(mut self) -> Self {
+        self.placement = CommandBadgePlacement::Trailing;
+        self
     }
 }
 
@@ -619,6 +639,32 @@ pub enum CommandPalettePosition {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trailing_placement_preserves_default_inline_behavior_and_search_ranking() {
+        let inline = CommandBadge::new("Ready", "blue");
+        assert_eq!(inline.placement, CommandBadgePlacement::Inline);
+        let trailing = inline.clone().trailing();
+        assert_eq!(trailing.placement, CommandBadgePlacement::Trailing);
+        assert_eq!(trailing.label, inline.label);
+        assert_eq!(trailing.color, inline.color);
+        let commands = vec![
+            Command::new("title", "Ready scene", || {}),
+            Command::new("badge", "Other scene", || {}).badges(vec![trailing]),
+        ];
+        let results = filter_commands(&commands, "ready");
+        assert_eq!(
+            results
+                .iter()
+                .map(|cmd| cmd.id.as_str())
+                .collect::<Vec<_>>(),
+            ["title", "badge"]
+        );
+        assert_eq!(
+            results[1].badges[0].placement,
+            CommandBadgePlacement::Trailing
+        );
+    }
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
