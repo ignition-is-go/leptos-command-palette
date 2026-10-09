@@ -11,6 +11,12 @@ struct CommandSection {
     commands: Vec<Command>,
 }
 
+fn command_second_row(command: &Command) -> Option<impl IntoView> {
+    command.second_row.as_ref().map(|view| view! {
+        <div data-command-palette-second-row="" style="margin-top:4px;min-width:0">{view.run()}</div>
+    })
+}
+
 fn command_sections(commands: Vec<Command>) -> Vec<CommandSection> {
     let mut sections: Vec<CommandSection> = Vec::new();
     for command in commands {
@@ -28,6 +34,45 @@ fn command_sections(commands: Vec<Command>) -> Vec<CommandSection> {
         }
     }
     sections
+}
+
+// Command equality represents identity, not rendered metadata or callbacks.
+// Both memo layers must propagate refreshed commands with unchanged IDs.
+fn current_commands(ctx: CommandPaletteContext) -> Memo<Vec<Command>> {
+    Memo::new_with_compare(
+        move |_| match ctx.nav_stack().get().last() {
+            Some(level) => level.items.clone(),
+            None => ctx.commands().get(),
+        },
+        |_, _| true,
+    )
+}
+
+fn matching_commands(items: Memo<Vec<Command>>, query: ReadSignal<String>) -> Memo<Vec<Command>> {
+    Memo::new_with_compare(
+        move |_| filter_commands(&items.get(), &query.get()),
+        |_, _| true,
+    )
+}
+
+fn navigation_depth(ctx: CommandPaletteContext) -> Memo<usize> {
+    Memo::new(move |_| ctx.nav_stack().get().len())
+}
+
+fn filtered_selection(
+    commands: &[Command],
+    current: Option<String>,
+    query_changed: bool,
+) -> Option<String> {
+    if !query_changed
+        && current
+            .as_ref()
+            .is_some_and(|id| commands.iter().any(|command| &command.id == id))
+    {
+        current
+    } else {
+        commands.first().map(|command| command.id.clone())
+    }
 }
 
 /// Whether a key event was aimed at somewhere text is being entered.
@@ -145,15 +190,12 @@ pub fn CommandPalette(
     // The commands visible at the current depth: root registrations when not in
     // a submenu, otherwise the snapshot captured when the current branch was
     // entered. Search filters this level only.
-    let current_items = Memo::new(move |_| match ctx.nav_stack().get().last() {
-        Some(level) => level.items.clone(),
-        None => ctx.commands().get(),
-    });
+    let current_items = current_commands(ctx);
 
     // Filter the current level by the query. For searchable branches this also
     // surfaces matching children inline (promoted with the branch name as
     // context), so a sub-option can be reached without entering the submenu.
-    let filtered_commands = Memo::new(move |_| filter_commands(&current_items.get(), &query.get()));
+    let filtered_commands = matching_commands(current_items, query);
 
     let selected_index_in_list = move || {
         let cmds = filtered_commands.get();
@@ -171,10 +213,15 @@ pub fn CommandPalette(
         }
     };
 
-    Effect::new(move || {
-        let _ = query.get();
+    Effect::new(move |previous_query: Option<String>| {
+        let current_query = query.get();
         let cmds = filtered_commands.get();
-        set_selected_id.set(cmds.first().map(|c| c.id.clone()));
+        set_selected_id.set(filtered_selection(
+            &cmds,
+            selected_id.get_untracked(),
+            previous_query.as_ref() != Some(&current_query),
+        ));
+        current_query
     });
 
     Effect::new(move || {
@@ -193,8 +240,9 @@ pub fn CommandPalette(
     // leaving a submenu), so each level starts with a fresh, unfiltered list.
     // Also refocus the input, since drilling in via mouse click moves focus off
     // it — without this the search box would be unusable after a click-drill.
+    let depth = navigation_depth(ctx);
     Effect::new(move || {
-        let _depth = ctx.nav_stack().get().len();
+        let _depth = depth.get();
         set_query.set(String::new());
         request_animation_frame(move || {
             if let Some(input) = input_ref.get_untracked() {
@@ -436,6 +484,7 @@ pub fn CommandPalette(
                                         let cmd_for_click = cmd.clone();
                                         view! {
                                             <div
+                                                data-command-palette-command=cmd.id.clone()
                                                 data-command-palette-selected=move || {
                                                     (selected_id.get().as_deref() == Some(&cmd_id_attr))
                                                         .then_some("true")
@@ -466,40 +515,17 @@ pub fn CommandPalette(
                                                     set_selected_id.set(Some(cmd_id_hover.clone()));
                                                 }
                                             >
-                                                <div>
-                                                    <div>{cmd.name.clone()}</div>
+                                                <div style="flex:1;min-width:0">
+                                                    <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{cmd.name.clone()}</div>
                                                     {cmd.description.as_ref().map(|d| {
                                                         view! {
                                                             <div style={desc_style.clone()}>{d.clone()}</div>
                                                         }
                                                     })}
-                                                    {(!cmd.badges.is_empty()).then(|| {
-                                                        view! {
-                                                            <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin-top:4px">
-                                                                {cmd.badges.clone().into_iter().map(|badge| {
-                                                                    let badge_style = format!(
-                                                                        "display:inline-flex;align-items:center;gap:4px;padding:1px 6px;\
-                                                                         border-radius:999px;white-space:nowrap;font-size:11px;line-height:16px;\
-                                                                         color:{color};border:1px solid color-mix(in srgb,{color} 38%,transparent);\
-                                                                         background:color-mix(in srgb,{color} 16%,transparent)",
-                                                                        color = badge.color,
-                                                                    );
-                                                                    let dot_style = format!(
-                                                                        "width:6px;height:6px;border-radius:50%;flex:none;background:{}",
-                                                                        badge.color,
-                                                                    );
-                                                                    view! {
-                                                                        <span style=badge_style>
-                                                                            <span style=dot_style></span>
-                                                                            {badge.label}
-                                                                        </span>
-                                                                    }
-                                                                }).collect_view()}
-                                                            </div>
-                                                        }
-                                                    })}
+                                                    {command_second_row(&cmd)}
                                                 </div>
-                                                <div style="display:flex;align-items:center">
+                                                {(cmd.shortcut.is_some() || is_branch).then(|| view! {
+                                                <div style="display:flex;align-items:center;flex:none;min-width:0;margin-left:12px">
                                                     {cmd.shortcut.as_ref().map(|s| {
                                                         view! {
                                                             <div style={shortcut_style.clone()}>{s.to_string()}</div>
@@ -509,6 +535,7 @@ pub fn CommandPalette(
                                                         <div style={chevron_style.clone()}>"›"</div>
                                                     })}
                                                 </div>
+                                                })}
                                             </div>
                                         }
                                     }).collect_view()}
@@ -531,6 +558,57 @@ pub fn CommandPalette(
 mod tests {
     use super::*;
 
+    fn second_row_html(command: &Command) -> String {
+        command_second_row(command)
+            .map(|view| view.into_view().to_html())
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn renderer_builds_arbitrary_caller_content_under_the_current_owner() {
+        Owner::new().with(|| {
+            provide_context("row context".to_string());
+            let command = Command::new("custom", "Custom", || {})
+                .search_terms(["search-only"])
+                .second_row(|| view! { <strong data-caller-content="">{use_context::<String>().unwrap()}</strong> });
+            let html = second_row_html(&command);
+            assert!(html.contains("<strong data-caller-content=\"\">row context</strong>"));
+            assert!(!html.contains("search-only"));
+            assert!(second_row_html(&Command::new("plain", "Plain", || {})).is_empty());
+        });
+    }
+
+    #[test]
+    fn stable_ids_refresh_custom_views_and_search_terms_in_root_and_submenus() {
+        Owner::new().with(|| {
+            let ctx = CommandPaletteContext::new();
+            let (query, _) = signal("scene".to_string());
+            let command = || {
+                Command::new("scene", "Scene", || {})
+                    .search_terms(["Ready"])
+                    .second_row(|| view! { <em>"Ready details"</em> })
+            };
+            ctx.register(command());
+            let root = matching_commands(current_commands(ctx), query);
+            assert!(second_row_html(&root.get_untracked()[0]).contains("Ready details"));
+            let updated = Command::new("scene", "Scene", || {})
+                .search_terms(["Active"])
+                .second_row(|| view! { <strong>"Active details"</strong> });
+            ctx.register(updated.clone());
+            assert!(second_row_html(&root.get_untracked()[0]).contains("Active details"));
+            assert_eq!(root.get_untracked()[0].search_terms, ["Active"]);
+            ctx.enter(&Command::submenu("scenes", "Open Scene", move || {
+                vec![command()]
+            }));
+            assert!(second_row_html(&root.get_untracked()[0]).contains("Ready details"));
+            ctx.nav_stack()
+                .update(|levels| levels[0].items = vec![updated]);
+            assert!(second_row_html(&root.get_untracked()[0]).contains("Active details"));
+            assert_eq!(root.get_untracked()[0].search_terms, ["Active"]);
+            assert_eq!(query.get_untracked(), "scene");
+        });
+    }
+
     #[test]
     fn promoted_children_share_one_parent_section() {
         let commands = vec![Command::submenu("scenes", "Open Scene", || {
@@ -549,5 +627,103 @@ mod tests {
             .commands
             .iter()
             .all(|command| command.description.is_none()));
+    }
+
+    #[test]
+    fn stable_ids_refresh_root_names_search_terms_and_callbacks() {
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        Owner::new().with(|| {
+            let ctx = CommandPaletteContext::new();
+            let called = Arc::new(AtomicUsize::new(0));
+            let (query, _) = signal("scene".to_string());
+            ctx.register(Command::new("scene", "Scene Before", || {}).search_terms(["Ready"]));
+            let filtered = matching_commands(current_commands(ctx), query);
+            let rendered = Memo::new(move |_| {
+                filtered
+                    .get()
+                    .into_iter()
+                    .map(|command| (command.name, command.search_terms))
+                    .collect::<Vec<_>>()
+            });
+            assert_eq!(rendered.get_untracked()[0].0, "Scene Before");
+            let action_count = called.clone();
+            ctx.register(
+                Command::new("scene", "Scene After", move || {
+                    action_count.fetch_add(1, Ordering::SeqCst);
+                })
+                .search_terms(["Active"]),
+            );
+            assert_eq!(rendered.get_untracked()[0].0, "Scene After");
+            assert_eq!(rendered.get_untracked()[0].1[0], "Active");
+            filtered.get_untracked()[0].execute();
+            assert_eq!(called.load(Ordering::SeqCst), 1);
+        });
+    }
+
+    #[test]
+    fn submenu_refresh_preserves_query_and_depth_but_updates_order_and_search_terms() {
+        Owner::new().with(|| {
+            let ctx = CommandPaletteContext::new();
+            let branch = Command::submenu("scenes", "Open Scene", || {
+                vec![
+                    Command::new("scene-1", "Scene One", || {}),
+                    Command::new("scene-2", "Scene Two", || {}),
+                ]
+            });
+            ctx.enter(&branch);
+            let (query, set_query) = signal("scene".to_string());
+            let depth = navigation_depth(ctx);
+            // Exercise the exact depth dependency used by the query-reset effect.
+            let reset = Memo::new(move |_| {
+                let depth = depth.get();
+                set_query.set(String::new());
+                depth
+            });
+            assert_eq!(reset.get_untracked(), 1);
+            set_query.set("scene".to_string());
+            let filtered = matching_commands(current_commands(ctx), query);
+            assert_eq!(filtered.get_untracked()[0].id, "scene-1");
+            ctx.nav_stack().update(|levels| {
+                levels[0].items = vec![
+                    Command::new("scene-2", "Scene Two Renamed", || {}).search_terms(["Active"]),
+                    Command::new("scene-1", "Scene One", || {}),
+                ];
+            });
+            assert_eq!(reset.get_untracked(), 1);
+            assert_eq!(query.get_untracked(), "scene");
+            assert_eq!(filtered.get_untracked()[0].id, "scene-2");
+            assert_eq!(filtered.get_untracked()[0].name, "Scene Two Renamed");
+            assert_eq!(filtered.get_untracked()[0].search_terms[0], "Active");
+            ctx.back();
+            assert_eq!(reset.get_untracked(), 0);
+            assert!(query.get_untracked().is_empty());
+            ctx.enter(&branch);
+            assert_eq!(reset.get_untracked(), 1);
+            assert!(query.get_untracked().is_empty());
+        });
+    }
+
+    #[test]
+    fn metadata_refresh_retains_selection_but_query_changes_and_removal_reset_it() {
+        let commands = vec![
+            Command::new("a", "A renamed", || {}),
+            Command::new("b", "B", || {}),
+        ];
+        assert_eq!(
+            filtered_selection(&commands, Some("b".into()), false).as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            filtered_selection(&commands, Some("b".into()), true).as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            filtered_selection(&commands, Some("missing".into()), false).as_deref(),
+            Some("a")
+        );
+        assert_eq!(filtered_selection(&[], Some("b".into()), false), None);
     }
 }
