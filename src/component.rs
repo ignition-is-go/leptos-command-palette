@@ -524,6 +524,7 @@ pub fn CommandPalette(
                                                     })}
                                                     {command_second_row(&cmd)}
                                                 </div>
+                                                {(cmd.shortcut.is_some() || is_branch).then(|| view! {
                                                 <div style="display:flex;align-items:center;flex:none;min-width:0;margin-left:12px">
                                                     {cmd.shortcut.as_ref().map(|s| {
                                                         view! {
@@ -534,6 +535,7 @@ pub fn CommandPalette(
                                                         <div style={chevron_style.clone()}>"›"</div>
                                                     })}
                                                 </div>
+                                                })}
                                             </div>
                                         }
                                     }).collect_view()}
